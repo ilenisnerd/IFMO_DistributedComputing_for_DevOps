@@ -1,7 +1,7 @@
 ---
-# Ansible playbook для установки только Mysql read реплики на slave-узле с Docker Compose
-# Использовать данный плейбук для установки Slave mysql реплики 
-- name: Deploy MySQL Slave
+# Использовать данный плейбук для установки slave mysql реплики 
+# УБРАЛ SHELL и COMMAND, так как использую только модули
+- name: Deploy MySQL Slave with Replication using Modules
   hosts: mysql_slave
   become: true
   vars:
@@ -10,111 +10,138 @@
     mysql_password: wp_password
     mysql_database: wordpress
     docker_compose_dir: /opt/mysql-slave
-    master_host: 130.193.59.198  # IP-адрес хоста мастера
-    replication_user: replication # Имя пользователя для репликации
-    replication_password: replication_password # Пароль пользователя для репликации
-    master_log_file: mysql-bin.000003 # Имя файла бинарного лога мастера, полученное из SHOW MASTER STATUS
-    master_log_pos: 761 # Позиция в бинарном логе мастера, полученная из SHOW MASTER STATUS
+    mysql_port: 3306
+
+    replication_user: replication
+    replication_password: replication_password
+
+    root_user_name: root
+    root_user_pass: rootpassword
+
+    local_login_host: 127.0.0.1
 
   tasks:
-    # Обновление системы и установка базовых зависимостей
-    - name: Обновление кэша APT и установка необходимых пакетов
+
+    - name: Получить IP-адрес мастера
+      set_fact:
+        master_host: "{{ hostvars[groups['mysql_master'][0]]['groups']['mysql_master'][0] }}"
+
+    - name: Установить зависимости
       apt:
         update_cache: yes
         name:
-          - apt-transport-https
-          - software-properties-common
-        state: present
-    
-    - name: Установка Python модуля для Docker
-      pip:
-        name: docker
+          - python3-pip
+          - python3-mysqldb
         state: present
 
-    # Создание директории для WordPress
-    - name: Создание директории для WordPress (docker compose)
+    - name: Установить Docker SDK для Python
+      pip:
+        name:
+          - docker
+          - docker-compose
+          - PyMySQL
+        state: present
+
+    - name: Создание директории для Docker Compose
       file:
         path: "{{ docker_compose_dir }}"
         state: directory
-        mode: "0755"
-    
-    - name: Копирование mysql-slave.cnf
+        mode: '0755'
+
+    - name: Копирование конфигурации MySQL
       template:
         src: "files/mysql-slave.cnf"
         dest: "{{ docker_compose_dir }}/mysql-slave.cnf"
-        mode: '0744'
+        mode: '0644'
 
-    - name: Копирование nginx.conf
-      template:
-        src: "templates/nginx.conf"
-        dest: "{{ docker_compose_dir }}/nginx.conf"
-        mode: "0744"
-
-
-    # Копирование docker-compose.yml
-    - name: Копирование docker-compose.yml
+    - name: Копирование docker-compose файла
       template:
         src: "templates/docker-compose-slave.yml"
         dest: "{{ docker_compose_dir }}/docker-compose-slave.yml"
-        mode: "0744"
+        mode: '0644'
 
-    # Запуск контейнеров через Docker Compose
-    - name: Запуск Docker Compose
-      shell: "docker compose -f {{ docker_compose_dir }}/docker-compose-slave.yml up -d" # убрал sudo 
-      args:
-        chdir: "{{ docker_compose_dir }}"
-    
-    # Ожидание доступности MySQL
-    - name: Проверка доступности MySQL
-      wait_for:
-        port: 3306
-        delay: 10
-        timeout: 300
+    - name: Запуск контейнера через Docker Compose
+      community.docker.docker_compose_v2:
+        project_src: "{{ docker_compose_dir }}"
+        files:
+          - docker-compose-slave.yml
+        state: present
 
-    # Проверка статуса контейнеров
     - name: Проверка запущенных контейнеров
-      command: "docker ps"
-      register: docker_ps
-      changed_when: false
+      docker_host_info:
+        containers: yes
+      register: all_containers
 
+    # Вывод информации о контейнерах из переменной all_containers
     - name: Вывод статуса контейнеров
       debug:
-        msg: "{{ docker_ps.stdout_lines }}"
+        msg:  
+          - "Контейнер: {{ item.Names[0][1:] }}"
+          - "Образ: {{ item.Image}}"
+          - "Статус: {{ item.Status }}"
+      loop: "{{ all_containers.containers }}"
+      loop_control:
+        label: "{{ item.Names[0] }}" # Сделал чтобы сократить вывод
         
-# Настройка slave-a 
+    - name: Подождать, пока MySQL станет доступен
+      wait_for:
+        host: "{{ local_login_host }}"
+        port: "{{ mysql_port }}"
+        delay: 30 # Задержка перед проверкой доступности
+        timeout: 120
 
-    - name: Get master status directly from master
-      delegate_to: "{{ master_host }}"
-      shell: docker exec mysql_master mysql -u root -p{{ mysql_root_password }} -e "SHOW MASTER STATUS\G"
-      register: master_status
-      changed_when: false
-
-    - name: Вывод статуса контейнеров
-      debug:
-        msg: "{{ master_status.stdout_lines }}"
-
-    - name: Configure slave replication
-      shell: >
-        docker exec mysql_slave mysql -u root -p{{ mysql_root_password }} -e 
-        "CHANGE MASTER TO 
-        MASTER_HOST='{{ master_host }}', 
-        MASTER_USER='{{ replication_user }}', 
-        MASTER_PASSWORD='{{ replication_password }}', 
-        MASTER_LOG_FILE='{{ master_log_file }}', 
-        MASTER_LOG_POS={{ master_log_pos }};"
-      args:
-        executable: /bin/bash
-
-    - name: Start slave
-      shell: docker exec mysql_slave mysql -u root -p{{ mysql_root_password }} -e "START SLAVE;"
-      args:
-        executable: /bin/bash
-
-    - name: Check slave status
-      shell: docker exec mysql_slave mysql -u root -p{{ mysql_root_password }} -e "SHOW SLAVE STATUS\G"
+    - name: Проверить статус репликации
+      community.mysql.mysql_query:
+        login_user: "{{ root_user_name }}"
+        login_password: "{{ mysql_root_password }}"
+        query: "SHOW SLAVE STATUS"
       register: slave_status
-      changed_when: false
 
-    - name: Display slave status
+    - name: Вывести основные показатели репликации
       debug:
-        var: slave_status.stdout_lines
+        var: slave_status
+
+    - name: Настроить репликацию
+      community.mysql.mysql_replication:
+        mode: changeprimary
+        primary_host: "{{ master_host }}"
+        primary_user: "{{ replication_user }}"
+        primary_password: "{{ replication_password }}"
+        primary_auto_position: 0
+        login_host: "{{ local_login_host }}"
+        login_port: "{{ mysql_port }}"
+        login_user: "{{ root_user_name }}"
+        login_password: "{{ mysql_root_password }}"
+        connect_timeout: 30
+      when: >
+        replica_status.query_result is not defined or
+        replica_status.query_result[0][0]['Slave_IO_Running'] != 'Yes'
+
+    - name: Запустить репликацию
+      community.mysql.mysql_replication:
+        mode: startreplica
+        login_user: "{{ root_user_name }}"
+        login_password: "{{ mysql_root_password }}"
+      when: >
+        replica_status.query_result is not defined or
+        replica_status.query_result[0][0]['Slave_IO_Running'] != 'Yes'
+
+    - name: Проверить статус репликации
+      community.mysql.mysql_query:
+        login_user: "{{ root_user_name }}"
+        login_password: "{{ mysql_root_password }}"
+        query: "SHOW SLAVE STATUS"
+      register: slave_status_result
+
+    - name: Вывести статус репликации
+      debug:
+        var: slave_status_result.query_result[0]
+
+    - name: Вывести основные показатели репликации
+      debug:
+        msg:
+          - "Master_Host: {{ slave_status_result.query_result[0][0]['Master_Host'] }}"
+          - "Slave_IO_Running: {{ slave_status_result.query_result[0][0]['Slave_IO_Running'] }}"
+          - "Slave_IO_State: {{ slave_status_result.query_result[0][0]['Slave_IO_State'] }}"
+          - "Slave_SQL_Running: {{ slave_status_result.query_result[0][0]['Slave_SQL_Running'] }}"
+          - "Slave_SQL_Running_State: {{ slave_status_result.query_result[0][0]['Slave_SQL_Running_State'] }}"

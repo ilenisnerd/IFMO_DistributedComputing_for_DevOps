@@ -1,6 +1,7 @@
 ---
 # Ansible playbook для установки WordPress на master-узле с Docker Compose
 # Использовать данный плейбук для установки Master mysql реплики 
+# УБРАЛ SHELL и COMMAND, так как использую только модули
 - name: Развертывание WordPress в Docker-контейнерах на Ubuntu
   hosts: mysql_master  # Мастер-узел MySQL
   become: yes  # Выполнять задачи от имени root (sudo)
@@ -12,6 +13,9 @@
     replication_user: replication
     replication_password: replication_password
     docker_compose_dir: /opt/wordpress-master  # Директория установки WordPress
+    mysql_port: 3306
+    root_user_name: root
+    root_user_pass: rootpassword
 
   tasks:
     # Обновление системы и установка базовых зависимостей
@@ -25,7 +29,10 @@
     
     - name: Установка Python модуля для Docker
       pip:
-        name: docker
+        name: 
+        - docker
+        - PyMySQL
+        executable: pip3
         state: present
 
     # Создание директории для WordPress
@@ -57,56 +64,71 @@
 
     # Запуск контейнеров через Docker Compose
     - name: Запуск Docker Compose
-      shell: "docker compose -f {{ docker_compose_dir }}/docker-compose-master.yml up -d" # убрал sudo 
-      args:
-        chdir: "{{ docker_compose_dir }}"
+      community.docker.docker_compose_v2:
+        project_src: "{{ docker_compose_dir }}"
+        files:
+          - docker-compose-master.yml
+        state: present  
     
     # Ожидание доступности MySQL
     - name: Проверка доступности MySQL
       wait_for:
-        port: 3306
+        port: "{{ mysql_port }}"
         delay: 10
         timeout: 300
 
     # Проверка статуса контейнеров
     - name: Проверка запущенных контейнеров
-      command: "docker ps"
-      register: docker_ps
-      changed_when: false
+      docker_host_info:
+        containers: yes
+      register: all_containers
 
+    # Вывод информации о контейнерах из переменной all_containers
     - name: Вывод статуса контейнеров
       debug:
-        msg: "{{ docker_ps.stdout_lines }}"
+        msg:  
+          - "Контейнер: {{ item.Names[0][1:] }}"
+          - "Образ: {{ item.Image}}"
+          - "Статус: {{ item.Status }}"
+      loop: "{{ all_containers.containers }}"
+      loop_control:
+        label: "{{ item.Names[0] }}" # Сделал чтобы сократить вывод
         
 
 # Создание replication user и получение master status
 
     - name: Создание replication user
-      shell: >
-        docker exec mysql_master mysql -u root -p{{ mysql_root_password }} -e 
-        "CREATE USER '{{ replication_user }}'@'%' IDENTIFIED BY '{{ replication_password }}'; 
-        GRANT REPLICATION SLAVE ON *.* TO '{{ replication_user }}'@'%'; 
-        FLUSH PRIVILEGES;"
-      args:
-        executable: /bin/bash
-      register: replication_user_result
-      changed_when: replication_user_result.rc == 0
-      failed_when: replication_user_result.rc != 0 and "ERROR 1396" not in replication_user_result.stderr
-    
+      community.mysql.mysql_user:
+        login_host: "{{ ansible_host }}"
+        login_port: "{{ mysql_port }}"  
+        login_user: "{{ root_user_name }}"
+        login_password: "{{ root_user_pass }}"
+        name: "{{ replication_user }}"
+        password: "{{ replication_password }}"
+        host: '%'
+        priv: '*.*:REPLICATION SLAVE'
+        state: present
+
     # Проверка master status
     - name: Получение master status
-      shell: docker exec mysql_master mysql -u root -p{{ mysql_root_password }} -e "SHOW MASTER STATUS\G"
+      community.mysql.mysql_query:
+        login_host: "{{ ansible_host }}"
+        login_port: "{{ mysql_port }}"
+        login_user: "{{ root_user_name }}"
+        login_password: "{{ root_user_pass }}"
+        query: "SHOW MASTER STATUS"
       register: master_status
       changed_when: false
 
-    - name: Показать статус мастера
-      debug:
-        var: master_status.stdout_lines
+# Было для теста
+#    - name: Показать статус мастера
+#      debug:
+#        var: master_status.query_result
 
     - name: Сохранение информации о мастере
       set_fact:
-        master_log_file: "{{ master_status.stdout | regex_search('File:\\s+(\\S+)', '\\1') | first }}"
-        master_log_pos: "{{ master_status.stdout | regex_search('Position:\\s+(\\d+)', '\\1') | first }}"
+        master_log_file: "{{ master_status.query_result[0][0].File }}"
+        master_log_pos: "{{ master_status.query_result[0][0].Position }}"
 
     - name: Сохранение информации о мастере в файл
       copy:
