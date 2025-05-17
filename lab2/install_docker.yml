@@ -14,6 +14,10 @@
           - ca-certificates
           - curl
           - python3-pip
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
         state: present
 
     - name: Добавление GPG ключа
@@ -27,17 +31,17 @@
         repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable"
         state: present
 
-    - name: Обновление кэша пакетов и установка Docker
-      apt:
-        update_cache: yes
-        name:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - docker-compose-plugin
-        state: present
+#    - name: Обновление кэша пакетов и установка Docker
+#      apt:
+#        update_cache: yes
+#        name:
+#          - docker-ce
+#          - docker-ce-cli
+#          - containerd.io
+#          - docker-compose-plugin
+#        state: present
 
-    - name: Update all packages to their latest version
+    - name: Обновление всех пакетов
       ansible.builtin.apt:
         name: "*"
         state: latest

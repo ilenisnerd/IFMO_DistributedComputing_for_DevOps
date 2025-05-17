@@ -25,15 +25,18 @@
         name:
           - apt-transport-https
           - software-properties-common
+          - python3-docker
+          - python3-pymysql
         state: present
     
-    - name: Установка Python модуля для Docker
-      pip:
-        name: 
-        - docker
-        - PyMySQL
-        executable: pip3
-        state: present
+#    - name: Установка Python модуля для Docker ---->>>
+# >>>---- Замена выше на python3-docker и python3-pymysql -----<<<<<
+#      pip:
+#        name: 
+#        - docker
+#        - PyMySQL
+#        executable: pip3
+#        state: present
 
     # Создание директории для WordPress
     - name: Создание директории для WordPress (docker compose)

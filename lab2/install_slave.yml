@@ -32,15 +32,17 @@
         name:
           - python3-pip
           - python3-mysqldb
+          - python3-docker
+          - python3-pymysql
         state: present
 
-    - name: Установить Docker SDK для Python
-      pip:
-        name:
-          - docker
-          - docker-compose
-          - PyMySQL
-        state: present
+#    - name: Установить Docker SDK для Python
+#      pip:
+#        name:
+#          - docker
+#          - docker-compose
+#          - PyMySQL
+#        state: present
 
     - name: Создание директории для Docker Compose
       file:
@@ -95,11 +97,16 @@
         login_user: "{{ root_user_name }}"
         login_password: "{{ mysql_root_password }}"
         query: "SHOW SLAVE STATUS"
-      register: slave_status
+      register: slave_status_result
 
     - name: Вывести основные показатели репликации
       debug:
-        var: slave_status
+        msg:
+          - "Master_Host: {{ slave_status_result.query_result[0][0]['Master_Host'] }}"
+          - "Slave_IO_Running: {{ slave_status_result.query_result[0][0]['Slave_IO_Running'] }}"
+          - "Slave_IO_State: {{ slave_status_result.query_result[0][0]['Slave_IO_State'] }}"
+          - "Slave_SQL_Running: {{ slave_status_result.query_result[0][0]['Slave_SQL_Running'] }}"
+          - "Slave_SQL_Running_State: {{ slave_status_result.query_result[0][0]['Slave_SQL_Running_State'] }}"
 
     - name: Настроить репликацию
       community.mysql.mysql_replication:
@@ -114,8 +121,9 @@
         login_password: "{{ mysql_root_password }}"
         connect_timeout: 30
       when: >
-        replica_status.query_result is not defined or
-        replica_status.query_result[0][0]['Slave_IO_Running'] != 'Yes'
+        slave_status_result.query_result is not defined or
+        slave_status_result.query_result[0][0]['Slave_IO_Running'] not in ['Yes', 'Connecting'] or
+        slave_status_result.query_result[0][0]['Slave_SQL_Running'] != 'Yes'
 
     - name: Запустить репликацию
       community.mysql.mysql_replication:
@@ -123,8 +131,9 @@
         login_user: "{{ root_user_name }}"
         login_password: "{{ mysql_root_password }}"
       when: >
-        replica_status.query_result is not defined or
-        replica_status.query_result[0][0]['Slave_IO_Running'] != 'Yes'
+        slave_status_result.query_result is not defined or
+        slave_status_result.query_result[0][0]['Slave_IO_Running'] not in ['Yes', 'Connecting'] or
+        slave_status_result.query_result[0][0]['Slave_SQL_Running'] != 'Yes'
 
     - name: Проверить статус репликации
       community.mysql.mysql_query:
