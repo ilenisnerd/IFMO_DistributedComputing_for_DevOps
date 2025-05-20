@@ -101,12 +101,7 @@
 
     - name: Вывести основные показатели репликации
       debug:
-        msg:
-          - "Master_Host: {{ slave_status_result.query_result[0][0]['Master_Host'] }}"
-          - "Slave_IO_Running: {{ slave_status_result.query_result[0][0]['Slave_IO_Running'] }}"
-          - "Slave_IO_State: {{ slave_status_result.query_result[0][0]['Slave_IO_State'] }}"
-          - "Slave_SQL_Running: {{ slave_status_result.query_result[0][0]['Slave_SQL_Running'] }}"
-          - "Slave_SQL_Running_State: {{ slave_status_result.query_result[0][0]['Slave_SQL_Running_State'] }}"
+        var: slave_status_result.query_result[0]
 
     - name: Настроить репликацию
       community.mysql.mysql_replication:
@@ -121,9 +116,10 @@
         login_password: "{{ mysql_root_password }}"
         connect_timeout: 30
       when: >
-        slave_status_result.query_result is not defined or
-        slave_status_result.query_result[0][0]['Slave_IO_Running'] not in ['Yes', 'Connecting'] or
-        slave_status_result.query_result[0][0]['Slave_SQL_Running'] != 'Yes'
+        slave_status_result.query_result[0] == [] 
+       # slave_status_result.query_result is not defined or
+       # slave_status_result.query_result[0][0]['Slave_IO_Running'] not in ['Yes', 'Connecting'] or
+       # slave_status_result.query_result[0][0]['Slave_SQL_Running'] != 'Yes'
 
     - name: Запустить репликацию
       community.mysql.mysql_replication:
@@ -131,9 +127,10 @@
         login_user: "{{ root_user_name }}"
         login_password: "{{ mysql_root_password }}"
       when: >
-        slave_status_result.query_result is not defined or
-        slave_status_result.query_result[0][0]['Slave_IO_Running'] not in ['Yes', 'Connecting'] or
-        slave_status_result.query_result[0][0]['Slave_SQL_Running'] != 'Yes'
+        slave_status_result.query_result[0] == [] 
+       # slave_status_result.query_result is not defined or
+       # slave_status_result.query_result[0][0]['Slave_IO_Running'] not in ['Yes', 'Connecting'] or
+       # slave_status_result.query_result[0][0]['Slave_SQL_Running'] != 'Yes'
 
     - name: Проверить статус репликации
       community.mysql.mysql_query:
