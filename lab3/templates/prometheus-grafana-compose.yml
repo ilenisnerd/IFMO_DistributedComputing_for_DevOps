@@ -1,0 +1,37 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    container_name: prometheus
+    restart: always
+    ports:
+      - "9090:9090"  # Открываем порт 9090 на хосте
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - monitoring_network
+
+  grafana:
+    image: grafana/grafana:12.0.1-ubuntu
+    container_name: grafana
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - grafana-configs:/etc/grafana
+      - ./mysql_dashboard.json:/etc/grafana/provisioning/dashboards/mysql_dashboard.json  # MySQL dashboard
+      - ./datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml # Datasource configuration
+      - ./dashboard.yml:/etc/grafana/provisioning/dashboards/dashboard.yml # Datasource configuration
+    networks:
+      - monitoring_network
+
+    
+networks:
+      monitoring_network:
+        driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  grafana-configs:

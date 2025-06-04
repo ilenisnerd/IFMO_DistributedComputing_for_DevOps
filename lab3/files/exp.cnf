@@ -1,0 +1,5 @@
+[client]
+user=wp_user
+password=wp_password
+host=db_master
+port=3306

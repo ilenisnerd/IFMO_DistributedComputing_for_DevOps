@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 15s
+
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+{% for job in prometheus_scrape_jobs %}
+  - job_name: '{{ job.name }}'
+{% if job.metrics_path is defined %}
+    metrics_path: '{{ job.metrics_path }}'
+{% endif %}
+    static_configs:
+      - targets:
+{% for target in job.targets %}
+          - '{{ target }}'
+{% endfor %}
+{% if job.labels is defined %}
+        labels:
+{% for key, value in job.labels.items() %}
+          {{ key }}: '{{ value }}'
+{% endfor %}
+{% endif %}
+{% endfor %}

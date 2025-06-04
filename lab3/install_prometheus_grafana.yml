@@ -1,0 +1,100 @@
+---
+# Использовать данный плейбук для установки prometheus и grafana
+- name: Установка prometheus и grafana
+  hosts: prometheus
+  become: true
+  vars:
+    docker_compose_dir: /opt/prometheus
+    prometheus_port: 9090
+    grafana_port: 3000
+    local_host: 127.0.0.1
+# ----------------------------------------Сюда можно добавить источник отслеживания----------------------------------------------------------
+    prometheus_scrape_jobs: # Список серваков с агентомами для сбора метрик
+
+      - name: 'mysql_slave_exporter'
+        targets:
+          - "{{ hostvars[groups['mysql_slave'][0]]['groups']['mysql_slave'][0] }}:9104"
+        metrics_path: '/metrics'
+
+      - name: 'mysql_master_exporter'
+        targets:
+          - "{{ hostvars[groups['mysql_master'][0]]['groups']['mysql_master'][0] }}:9104"
+        metrics_path: '/metrics'
+# ----------------------------------------Сюда можно добавить источник отслеживания----------------------------------------------------------
+
+  tasks:
+
+    - name: Получить IP-адрес prometheus сервера
+      set_fact:
+        master_host: "{{ hostvars[groups['prometheus'][0]]['groups']['prometheus'][0] }}"
+
+    - name: Создание директории для Docker Compose
+      file:
+        path: "{{ docker_compose_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Копирование docker-compose файла
+      template:
+        src: "templates/prometheus-grafana-compose.yml"
+        dest: "{{ docker_compose_dir }}/prometheus-grafana-compose.yml"
+        mode: '0644'
+
+    - name: Копирование prometheus.yml файла
+      template:
+        src: "files/prometheus.yml.j2"
+        dest: "{{ docker_compose_dir }}/prometheus.yml"
+        mode: '0644'
+
+    - name: Копирование datasource.yaml файла
+      copy:
+        src: "files/datasource.yaml"
+        dest: "{{ docker_compose_dir }}/datasource.yml"
+
+    - name: Копирование dashboard.yml файла
+      copy:
+        src: "files/dashboard.yaml"
+        dest: "{{ docker_compose_dir }}/dashboard.yml"
+
+    - name: Копирование mysql_dashboard.json файла
+      copy:
+        src: "files/mysql_dashboard.js"
+        dest: "{{ docker_compose_dir }}/mysql_dashboard.json"
+
+    - name: Очистка предыдущих контейнеров и сетей
+      community.docker.docker_compose_v2:
+        project_src: "{{ docker_compose_dir }}"
+        files:
+          - prometheus-grafana-compose.yml
+        state: absent
+
+    - name: Запуск контейнера через Docker Compose
+      community.docker.docker_compose_v2:
+        project_src: "{{ docker_compose_dir }}"
+        files:
+          - prometheus-grafana-compose.yml
+        state: present
+        recreate: always 
+
+    - name: Проверка запущенных контейнеров
+      docker_host_info:
+        containers: yes
+      register: all_containers
+
+    # Вывод информации о контейнерах из переменной all_containers
+    - name: Вывод статуса контейнеров
+      debug:
+        msg:  
+          - "Контейнер: {{ item.Names[0][1:] }}"
+          - "Образ: {{ item.Image}}"
+          - "Статус: {{ item.Status }}"
+      loop: "{{ all_containers.containers }}"
+      loop_control:
+        label: "{{ item.Names[0] }}" # Сделал чтобы сократить вывод
+    
+    - name: Проверка доступности Prometheus
+      wait_for:
+        port: "{{ prometheus_port }}"
+        delay: 10
+        timeout: 300
+        host: "{{ local_host }}"

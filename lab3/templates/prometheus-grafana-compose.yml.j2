@@ -1,0 +1,35 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    container_name: prometheus
+    restart: always
+    ports:
+      - "9090:9090"  # Открываем порт 9090 на хосте
+    volumes:
+      - ./prometheus.yml:/etc/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - monitoring_network
+#    command: --server-id=2 --log-bin=mysql-bin --binlog-format=ROW --relay-log=mysql-relay-bin --log-slave-updates=1 --read-only=1
+
+#  mysql_exporter:
+#    image: prom/mysqld-exporter
+#    command:
+#      - --config.my-cnf=/cfg/.my.cnf
+#      - --mysqld.address=db_slave:3306
+#    container_name: mysql_exporter
+#    restart: unless-stopped
+#    ports:
+#      - "9104:9104"  # Открываем порт 9104 на хосте
+#    volumes:
+#      - ./exps.cnf:/cfg/.my.cnf
+#    networks:
+#      - monitoring_network
+#    depends_on:
+#      - prometheus
+networks:
+      monitoring_network:
+        driver: bridge
+
+volumes:
+  prometheus-data:
