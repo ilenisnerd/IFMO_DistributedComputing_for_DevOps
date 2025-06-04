@@ -61,12 +61,12 @@
         src: "files/mysql_dashboard.js"
         dest: "{{ docker_compose_dir }}/mysql_dashboard.json"
 
-    - name: Очистка предыдущих контейнеров и сетей
-      community.docker.docker_compose_v2:
-        project_src: "{{ docker_compose_dir }}"
-        files:
-          - prometheus-grafana-compose.yml
-        state: absent
+#    - name: Очистка предыдущих контейнеров и сетей
+#      community.docker.docker_compose_v2:
+#        project_src: "{{ docker_compose_dir }}"
+#        files:
+#          - prometheus-grafana-compose.yml
+#        state: absent
 
     - name: Запуск контейнера через Docker Compose
       community.docker.docker_compose_v2:
